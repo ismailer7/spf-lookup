@@ -9,6 +9,7 @@ import javax.naming.directory.InitialDirContext;
 import java.io.File;
 import java.io.IOException;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -21,17 +22,19 @@ public class SpfChecker {
 
     private String domain;
 
+    private final List<String> unawanted = List.of("spf", "spf.", "spf_", "spf_", "_spf", "mx.", "_netblocks");
+
     public SpfChecker(String domain) {
         this.domain = domain;
         System.out.println("SPF Check for Domain " + YELLOW + domain + RESET);
     }
 
-    synchronized void check(String domain, int deep, File result, File checked) {
+    synchronized void check(String domain, int deep, File result, File checked, File origin) {
         try {
-            Pattern pattern = Pattern.compile("(include|exists|redirect)(:|=)[\\w{}%\\.]*");
+            Pattern pattern = Pattern.compile("(include|exists|redirect)(:|=)([a-zA-Z\\._-]*)");
             Matcher matcher = null;
 
-            Hashtable<String, String> env = new Hashtable<>();
+            var env = new Hashtable<>();
             env.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.dns.DnsContextFactory");
             DirContext ctx = new InitialDirContext(env);
             Attributes attrs = ctx.getAttributes(domain, new String[]{"TXT"});
@@ -43,16 +46,19 @@ public class SpfChecker {
             } else {
                 txtRecords = attrs.get("TXT").getAll();
             }
-
             while (txtRecords.hasMore()) {
                 String record = (String) txtRecords.next();
                 matcher = pattern.matcher(record);
+                FileUtils.write(origin, domain + " >>> " + record);
                 if (record.startsWith("\"v=spf1")) {
                     //System.out.println(tabs(deep) + "> SPF record for " + domain + ": " + record);
                     while(matcher.find()) {
                         //System.out.println(tabs(deep + 1) + "> " + GREEN + matcher.group() + RESET);
-                        FileUtils.write(result, matcher.group().replaceAll("(include|exists|redirect)(:|=)", ""));
-                        check(matcher.group().replace("include:", ""), deep + 2, result, checked);
+                        var dom = matcher.group(3).trim();
+                        if(!dom.isEmpty() && validDomain(dom)) {
+                            FileUtils.write(result, matcher.group(3));
+                            check(matcher.group().replace("include:", ""), deep + 2, result, checked, origin);
+                        }
                     }
 
                     return;
@@ -70,9 +76,13 @@ public class SpfChecker {
 
     }
 
-
-    String tabs(int deep) {
-        return "\t".repeat(Math.max(0, deep));
+    private boolean validDomain(String domain) {
+        for (String unwanted : unawanted) {
+            if (domain.contains(unwanted)) {
+                return false;
+            }
+        }
+        return true;
     }
 
 }

@@ -10,6 +10,10 @@ import static java.lang.System.exit;
 
 public class FileUtils {
 
+
+
+
+
     private static final SimpleDateFormat spfFormat = new SimpleDateFormat("YYYY-MM-dd_hhmmss");
     static List<String> loadFileIntoList(String path) throws IOException {
         File oldFormatFile = new File(path);
@@ -70,6 +74,19 @@ public class FileUtils {
                 return file;
             } catch (IOException e) {
                 System.out.println("Cannot Create Expired File !");
+            }
+        }
+        return null;
+    }
+
+    static File createOriginalSpfFile(String folder) {
+        File file = new File("./" + folder + "/origin.txt");
+        if(!file.exists()) {
+            try {
+                file.createNewFile();
+                return file;
+            } catch (IOException e) {
+                System.out.println("Cannot Create Origin File !");
             }
         }
         return null;
