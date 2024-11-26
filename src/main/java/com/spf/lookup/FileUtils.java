@@ -92,6 +92,19 @@ public class FileUtils {
         return null;
     }
 
+    static File logFile(String folder) {
+        File file = new File("./" + folder + "/logs.txt");
+        if(!file.exists()) {
+            try {
+                file.createNewFile();
+                return file;
+            } catch (IOException e) {
+                System.out.println("Cannot Create Logs File !");
+            }
+        }
+        return null;
+    }
+
     static synchronized void write(File file, String line) throws IOException, InterruptedException {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(file.getAbsolutePath(), true))) {
             writer.append(line).append("\n");

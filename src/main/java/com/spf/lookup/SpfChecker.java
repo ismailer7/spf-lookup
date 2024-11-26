@@ -22,16 +22,16 @@ public class SpfChecker {
 
     private String domain;
 
-    private final List<String> unawanted = List.of("spf", "spf.", "spf_", "spf_", "_spf", "mx.", "_netblocks");
+    private final List<String> unawanted = List.of("");
 
     public SpfChecker(String domain) {
         this.domain = domain;
         System.out.println("SPF Check for Domain " + YELLOW + domain + RESET);
     }
 
-    synchronized void check(String domain, int deep, File result, File checked, File origin) {
+    synchronized void check(String domain, int deep, File result, File checked, File origin, File logFile) throws IOException, InterruptedException {
         try {
-            Pattern pattern = Pattern.compile("(include|exists|redirect)(:|=)([a-zA-Z\\._-]*)");
+            Pattern pattern = Pattern.compile("(include|exists|redirect)(:|=)([a-zA-Z0-9\\._-]*)");
             Matcher matcher = null;
 
             var env = new Hashtable<>();
@@ -40,14 +40,19 @@ public class SpfChecker {
             Attributes attrs = ctx.getAttributes(domain, new String[]{"TXT"});
             NamingEnumeration<?> txtRecords = null;
             var txt = attrs.get("TXT");
+
             if(txt == null) {
-                FileUtils.write(checked, domain);
-                return;
+                if(deep == 0) {
+                    FileUtils.write(checked, domain);
+                    return;
+                }
             } else {
                 txtRecords = attrs.get("TXT").getAll();
             }
-            while (txtRecords.hasMore()) {
-                String record = (String) txtRecords.next();
+
+            while (txtRecords != null && txtRecords.hasMore()) {
+                var record = (String) txtRecords.next();
+                record = record.replaceAll("\"\\s*\"", "");
                 matcher = pattern.matcher(record);
                 FileUtils.write(origin, domain + " >>> " + record);
                 if (record.startsWith("\"v=spf1")) {
@@ -55,9 +60,12 @@ public class SpfChecker {
                     while(matcher.find()) {
                         //System.out.println(tabs(deep + 1) + "> " + GREEN + matcher.group() + RESET);
                         var dom = matcher.group(3).trim();
-                        if(!dom.isEmpty() && validDomain(dom)) {
+                        if(!dom.isEmpty()) {
                             FileUtils.write(result, matcher.group(3));
-                            check(matcher.group().replace("include:", ""), deep + 2, result, checked, origin);
+                            var newDomain = matcher.group().replaceAll("(include|redirect|exists):", "");
+                            if(!newDomain.equals(domain)) {
+                                check(newDomain, deep + 2, result, checked, origin, logFile);
+                            }
                         }
                     }
 
@@ -67,22 +75,15 @@ public class SpfChecker {
 
             //System.out.println("No SPF record found for " + domain);
         } catch (NamingException e) {
-            // System.out.println("Error retrieving SPF record: " + e.getMessage());
+             //System.out.println("Error retrieving SPF record for domain: " + domain);
+             FileUtils.write(logFile, String.format("Error retrieving SPF record for domain: %s", domain));
+             return;
         } catch (IOException e) {
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
 
-    }
-
-    private boolean validDomain(String domain) {
-        for (String unwanted : unawanted) {
-            if (domain.contains(unwanted)) {
-                return false;
-            }
-        }
-        return true;
     }
 
 }

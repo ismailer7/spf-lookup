@@ -1,5 +1,6 @@
 package com.spf.lookup;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,13 +49,14 @@ public class SPF {
         var resultFile = FileUtils.createResultFile(folderResult);
         var checkedFile = FileUtils.createCheckedFile(folderResult);
         var expiredFile = FileUtils.createAvailableForSellFile(folderResult);
+        var logFile = FileUtils.logFile(folderResult);
         var origin = FileUtils.createOriginalSpfFile(folderResult);
 
         System.out.println("Assets Directory and Files has been Created !!");
         var batches = partitions(domainList, batch);
         ExecutorService executorService = Executors.newFixedThreadPool(100);
         batches.forEach(partition -> {
-            executorService.execute(new SPFJobExecutor(partition, resultFile, checkedFile, origin));
+            executorService.execute(new SPFJobExecutor(partition, resultFile, checkedFile, origin, logFile));
         });
         executorService.shutdown();
         executorService.awaitTermination(10, TimeUnit.DAYS);
