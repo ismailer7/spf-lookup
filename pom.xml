@@ -6,12 +6,13 @@
 
     <groupId>com.spf.lookup</groupId>
     <artifactId>spf-lookup</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.12-RC</version>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <app.version>${project.version}</app.version>
     </properties>
 
     <dependencies>
@@ -50,6 +51,12 @@
                 </configuration>
             </plugin>
         </plugins>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>  <!-- Enable variable replacement -->
+            </resource>
+        </resources>
     </build>
 
 </project>

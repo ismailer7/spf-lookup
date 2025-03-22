@@ -8,8 +8,7 @@ import javax.naming.directory.DirContext;
 import javax.naming.directory.InitialDirContext;
 import java.io.File;
 import java.io.IOException;
-import java.util.Hashtable;
-import java.util.List;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -17,73 +16,68 @@ public class SpfChecker {
 
     public static final String RESET = "\033[0m";
     public static final String GREEN = "\033[0;32m";
-
     public static final String YELLOW = "\033[0;33m";
+    public static final String RED = "\033[0;31m";
+    public static final String BLUE = "\033[0;34m";
 
-    private String domain;
+    private final Set<String> checkedDomains = new HashSet<>(); // Avoid infinite loops
 
-    private final List<String> unawanted = List.of("");
+    public SpfChecker() {}
 
-    public SpfChecker(String domain) {
-        this.domain = domain;
-        System.out.println("SPF Check for Domain " + YELLOW + domain + RESET);
-    }
+    void check(String rootDomain, File result, File checked, File origin, File logFile) throws IOException, InterruptedException {
+        Pattern pattern = Pattern.compile("(include|exists|redirect)(:|=)([a-zA-Z0-9\\._-]*)");
 
-    synchronized void check(String domain, int deep, File result, File checked, File origin, File logFile) throws IOException, InterruptedException {
-        try {
-            Pattern pattern = Pattern.compile("(include|exists|redirect)(:|=)([a-zA-Z0-9\\._-]*)");
-            Matcher matcher = null;
+        Queue<String> queue = new LinkedList<>();
+        queue.add(rootDomain);
 
-            var env = new Hashtable<>();
-            env.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.dns.DnsContextFactory");
-            DirContext ctx = new InitialDirContext(env);
-            Attributes attrs = ctx.getAttributes(domain, new String[]{"TXT"});
-            NamingEnumeration<?> txtRecords = null;
-            var txt = attrs.get("TXT");
+        while (!queue.isEmpty()) {
+            String domain = queue.poll();
+            if (checkedDomains.contains(domain)) continue; // Skip already processed domains
+            checkedDomains.add(domain);
 
-            if(txt == null) {
-                if(deep == 0) {
+            //System.out.println(BLUE + "[INFO] Checking SPF for domain: " + domain + RESET);
+
+            try {
+                // Setup DNS context
+                var env = new Hashtable<String, String>();
+                env.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.dns.DnsContextFactory");
+                DirContext ctx = new InitialDirContext(env);
+                Attributes attrs = ctx.getAttributes(domain, new String[]{"TXT"});
+
+                var txtAttr = attrs.get("TXT");
+                if (txtAttr == null) {
+                    //System.out.println(RED + "[WARN] No SPF record found for " + domain + RESET);
                     FileUtils.write(checked, domain);
-                    return;
+                    continue;
                 }
-            } else {
-                txtRecords = attrs.get("TXT").getAll();
-            }
 
-            while (txtRecords != null && txtRecords.hasMore()) {
-                var record = (String) txtRecords.next();
-                record = record.replaceAll("\"\\s*\"", "");
-                matcher = pattern.matcher(record);
-                FileUtils.write(origin, domain + " >>> " + record);
-                if (record.startsWith("\"v=spf1")) {
-                    //System.out.println(tabs(deep) + "> SPF record for " + domain + ": " + record);
-                    while(matcher.find()) {
-                        //System.out.println(tabs(deep + 1) + "> " + GREEN + matcher.group() + RESET);
-                        var dom = matcher.group(3).trim();
-                        if(!dom.isEmpty()) {
-                            FileUtils.write(result, matcher.group(3));
-                            var newDomain = matcher.group().replaceAll("(include|redirect|exists):", "");
-                            if(!newDomain.equals(domain)) {
-                                check(newDomain, deep + 2, result, checked, origin, logFile);
+                NamingEnumeration<?> txtRecords = txtAttr.getAll();
+
+                while (txtRecords.hasMore()) {
+                    var record = (String) txtRecords.next();
+                    record = record.replaceAll("\"\\s*\"", "");
+
+                    Matcher matcher = pattern.matcher(record);
+                    FileUtils.write(origin, domain + " >>> " + record);
+
+                    if (record.startsWith("\"v=spf1")) {
+                        //System.out.println(YELLOW + "[SPF] Found SPF record for " + domain + ": " + record + RESET);
+
+                        while (matcher.find()) {
+                            var subDomain = matcher.group(3).trim();
+                            if (!subDomain.isEmpty() && !checkedDomains.contains(subDomain)) {
+                                FileUtils.write(result, subDomain);
+                                //System.out.println(GREEN + "[INCLUDE] Queued: " + subDomain + RESET);
+                                queue.add(subDomain); // Add to queue instead of recursion
                             }
                         }
                     }
-
-                    return;
                 }
+
+            } catch (NamingException e) {
+                //System.err.println(RED + "[ERROR] Could not retrieve SPF record for: " + domain + RESET);
+                FileUtils.write(logFile, "Error retrieving SPF record for domain: " + domain);
             }
-
-            //System.out.println("No SPF record found for " + domain);
-        } catch (NamingException e) {
-             //System.out.println("Error retrieving SPF record for domain: " + domain);
-             FileUtils.write(logFile, String.format("Error retrieving SPF record for domain: %s", domain));
-             return;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
         }
-
     }
-
 }
