@@ -1,5 +1,10 @@
 package com.spf.lookup;
 
+import com.spf.config.ConfigLoader;
+import com.spf.job.SPFJobExecutor;
+import com.spf.licence.LicenceValidator;
+import com.spf.utils.FileUtils;
+
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,12 +19,39 @@ public class SPF {
     static final int BATCH_SIZE = 10000;
     private static final AtomicInteger progressCounter = new AtomicInteger(0);
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) throws InterruptedException, IOException {
+
+        String licenseKey = ConfigLoader.get("licence.key"); // Could also read from a local file or input
+        // System.out.println("🚀 Validating Licence Key for User ...");
+        if (!LicenceValidator.validateLicense(licenseKey)) {
+            //System.out.println("Application terminated due to license failure.");
+            System.exit(1);
+        }
+
+        // Proceed with app
+        System.out.println("🚀 Application starting...");
+
+        /*System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.com.au"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.au"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.com.br"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.co.uk"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.br"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.co.il"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.com.uk"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.co.br"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.com.au"));
+        System.out.println(DomainUtils.getRootDomain("dazda.zdazd.azd.Azd.azdazd.test.com.au"));*/
+
         printBanner();
         var batch = 0;
         var domains = "";
+        var ignoreDomainsPath = "";
 
-        if (args.length == 2) {
+        if(args.length == 3) {
+            domains = args[0];
+            batch = Integer.parseInt(args[1]);
+            ignoreDomainsPath = args[2];
+        } else if (args.length == 2) {
             domains = args[0];
             batch = Integer.parseInt(args[1]);
         } else if (args.length == 1) {
@@ -50,7 +82,17 @@ public class SPF {
         var folderResult = FileUtils.createResultFolder();
         var resultFile = FileUtils.createResultFile(folderResult);
         var checkedFile = FileUtils.createCheckedFile(folderResult);
-        var expiredFile = FileUtils.createAvailableForSellFile(folderResult);
+        IgnoredDomainList ignoredDomainList = new IgnoredDomainList();
+
+        if(ignoreDomainsPath.isEmpty()) {
+            ignoredDomainList.setDefaultIgnoredList();
+        } else {
+            ignoredDomainList.loadFromFile(ignoreDomainsPath);
+        }
+        var ignoreDomains = ignoredDomainList.getIgnoredList();
+        var guideFile = FileUtils.createGuideFile(folderResult);
+        var guideFile2 = FileUtils.createGuideFile2(folderResult);
+        //var expiredFile = FileUtils.createAvailableForSellFile(folderResult);
         var logFile = FileUtils.logFile(folderResult);
         var origin = FileUtils.createOriginalSpfFile(folderResult);
 
@@ -60,7 +102,7 @@ public class SPF {
         SPFJobExecutor.setTotalJobs(domainList.size());
         ExecutorService executorService = Executors.newFixedThreadPool(100);
         batches.forEach(partition -> {
-            executorService.execute(new SPFJobExecutor(partition, resultFile, checkedFile, origin, logFile));
+            executorService.execute(new SPFJobExecutor(partition, resultFile, checkedFile, origin, logFile, ignoredDomainList, guideFile, guideFile2));
         });
         executorService.shutdown();
         executorService.awaitTermination(10, TimeUnit.DAYS);
@@ -77,32 +119,34 @@ public class SPF {
                 n -> domains.subList(n * length, n == fullChunks ? size : (n + 1) * length));
     }
 
-    private static void printBanner() {
-        String version = getAppVersion();
+    public static void printBanner() {
+        boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
 
-        // ANSI Color Codes
-        String RED = "\u001B[31m";
-        String GREEN = "\u001B[32m";
-        String BLUE = "\u001B[34m";
-        String CYAN = "\u001B[36m";
-        String RESET = "\u001B[0m"; // Reset color
+        // ANSI color codes (disabled on Windows CMD but works in Windows Terminal/VS Code)
+        String RESET = isWindows ? "" : "\033[0m";
+        String CYAN = isWindows ? "" : "\033[0;36m";
+        String YELLOW = isWindows ? "" : "\033[0;33m";
+
+        String version = getAppVersion();
 
         try (InputStream is = SPF.class.getClassLoader().getResourceAsStream("banner.txt")) {
             if (is != null) {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        // Replace ${app.version} with a colored version number
-                        line = line.replace("${app.version}", GREEN + version + RESET);
-                        System.out.println(CYAN + line + RESET);
+                        // Apply color only if not on Windows CMD
+                        System.out.println(CYAN + line.replace("${app.version}", version) + RESET);
                     }
                 }
             } else {
-                System.out.println(RED + "Banner not found!" + RESET);
+                System.out.println("Banner file not found!");
             }
         } catch (Exception e) {
-            System.err.println(RED + "Error loading banner: " + e.getMessage() + RESET);
+            System.err.println("Error loading banner: " + e.getMessage());
         }
+
+        // Print version separately if banner.txt doesn't contain ${app.version}
+        System.out.println(YELLOW + " Version: " + version + RESET);
     }
 
 
@@ -131,11 +175,11 @@ public class SPF {
             System.out.print("\r" + message + " " + progressBar + " " + percentage + "%");
             System.out.flush();
             try {
-                Thread.sleep(steps * 100); // Simulating work being done
+                Thread.sleep(steps * 100L); // Simulating work being done
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }
-        System.out.println(); // Move to the next line after completion
+        System.out.println(); // Move to the next line after completion*/
     }
 }

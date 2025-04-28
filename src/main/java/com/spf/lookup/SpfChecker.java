@@ -1,5 +1,8 @@
 package com.spf.lookup;
 
+import com.spf.utils.DomainUtils;
+import com.spf.utils.FileUtils;
+
 import javax.naming.Context;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
@@ -24,7 +27,13 @@ public class SpfChecker {
 
     public SpfChecker() {}
 
-    void check(String rootDomain, File result, File checked, File origin, File logFile) throws IOException, InterruptedException {
+    public void check(String rootDomain, File result, File checked, File origin, File logFile, IgnoredDomainList ignoredDomainList, File guideFile, File guideFile2) throws IOException, InterruptedException {
+        var spfSimplify = new StringBuilder();
+        spfSimplify.append(rootDomain);
+
+        var spfSimplify2 = new StringBuilder();
+        spfSimplify2.append(rootDomain);
+
         Pattern pattern = Pattern.compile("(include|exists|redirect)(:|=)([a-zA-Z0-9\\._-]*)");
 
         Queue<String> queue = new LinkedList<>();
@@ -65,8 +74,10 @@ public class SpfChecker {
 
                         while (matcher.find()) {
                             var subDomain = matcher.group(3).trim();
-                            if (!subDomain.isEmpty() && !checkedDomains.contains(subDomain)) {
+                            if (!subDomain.isEmpty() && !checkedDomains.contains(subDomain) && !ignoredDomainList.isIgnored(subDomain)) {
                                 FileUtils.write(result, subDomain);
+                                spfSimplify.append(" --- ").append(subDomain);
+                                spfSimplify2.append(" --- ").append(DomainUtils.getRootDomain(subDomain));
                                 //System.out.println(GREEN + "[INCLUDE] Queued: " + subDomain + RESET);
                                 queue.add(subDomain); // Add to queue instead of recursion
                             }
@@ -79,5 +90,10 @@ public class SpfChecker {
                 FileUtils.write(logFile, "Error retrieving SPF record for domain: " + domain);
             }
         }
+        spfSimplify.append("\n");
+        var spfSiplifyString = spfSimplify.toString();
+        var spfSiplifyString2 = spfSimplify2.toString();
+        FileUtils.write(guideFile, spfSiplifyString);
+        FileUtils.write(guideFile2, spfSiplifyString2);
     }
 }
